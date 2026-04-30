@@ -36,9 +36,17 @@ MAX_CHUNK_SIZE = 1500
 
 
 # Captures the full title after "Section N -" / "Recette N -".
-SECTION_HEADER_PATTERN = re.compile(
+KEYWORD_HEADER_PATTERN = re.compile(
     r"\b(?:Section|Recette)\s+\d+\s*[—\-:]?\s*([^\n]+)",
     re.IGNORECASE,
+)
+
+# Captures hierarchical numeric headers like "1.", "2.1.", "1.1.4." at the
+# start of a line, followed by a substantial uppercase-starting title.
+# Examples: "1. PRESENTATION", "2.1. Utilisation des marges", "1.2.3. Sub-section".
+# Group 1 = numbering, group 2 = title text.
+NUMERIC_HEADER_PATTERN = re.compile(
+    r"(?:^|\n)\s*(\d+(?:\.\d+)*\.?)\s+([A-ZÀ-Ÿ][^\n]{2,})",
 )
 
 # Paragraph boundary: blank line (one or more newlines around whitespace).
@@ -54,11 +62,30 @@ def _hash_text(text: str) -> str:
 
 
 def _parse_section_headers(text: str) -> list[tuple[int, str]]:
-    """Find all section/recipe headers. Returns [(offset, title), ...]."""
-    return [
-        (m.start(), m.group(1).strip())
-        for m in SECTION_HEADER_PATTERN.finditer(text)
-    ]
+    """Find all section headers. Returns [(offset, title), ...] sorted by offset.
+
+    Recognises two header styles:
+        1. "Section N - Title" / "Recette N - Title"  (test corpus style)
+        2. "1. TITLE", "2.1. Title", "1.2.3. Title"   (hierarchical numbering
+           used in administrative / normative documents)
+    """
+    headers: list[tuple[int, str]] = []
+
+    # Style 1: keyword + number + title
+    for m in KEYWORD_HEADER_PATTERN.finditer(text):
+        headers.append((m.start(), m.group(1).strip()))
+
+    # Style 2: hierarchical numbering at line start. We keep both the number
+    # and the title in the label so the citation reads e.g. "2.1. Utilisation".
+    # m.start(1) is the offset of the first digit (not the leading newline).
+    for m in NUMERIC_HEADER_PATTERN.finditer(text):
+        numbering = m.group(1).strip()
+        title = m.group(2).strip()
+        full_label = f"{numbering} {title}"
+        headers.append((m.start(1), full_label))
+
+    headers.sort(key=lambda h: h[0])
+    return headers
 
 
 def _section_title_at_offset(
@@ -91,44 +118,46 @@ def _split_by_sections(
     text: str,
     headers: list[tuple[int, str]],
     min_size: int,
-) -> list[tuple[int, int]]:
+) -> list[tuple[int, int, str | None]]:
     """Build segments where each section is one segment.
 
-    Preamble (text before the first header) becomes its own segment if it
-    has substantial content (>= min_size). Otherwise it is folded into
-    the first section.
+    Returns a list of (start, end, section_title) tuples.
+
+    Preamble (text before the first header) becomes its own segment with
+    section_title=None if it has substantial content (>= min_size).
+    Otherwise it is folded into the first section's segment, which carries
+    that section's title.
     """
-    segments: list[tuple[int, int]] = []
-    first_header = headers[0][0]
+    segments: list[tuple[int, int, str | None]] = []
+    first_header_offset = headers[0][0]
 
     # Decide where the first section starts: preamble is folded if too small.
-    if first_header >= min_size:
-        segments.append((0, first_header))
-        section_start_idx = first_header
+    if first_header_offset >= min_size:
+        segments.append((0, first_header_offset, None))
+        first_section_start = first_header_offset
     else:
-        section_start_idx = 0
+        first_section_start = 0
 
     # Each section spans from its header (or preamble start) to the next.
-    for i, (header_offset, _) in enumerate(headers):
+    for i, (header_offset, header_title) in enumerate(headers):
         section_end = headers[i + 1][0] if i + 1 < len(headers) else len(text)
-        actual_start = section_start_idx if i == 0 else header_offset
-        segments.append((actual_start, section_end))
-        section_start_idx = header_offset  # for completeness, not used
+        actual_start = first_section_start if i == 0 else header_offset
+        segments.append((actual_start, section_end, header_title))
 
     return segments
 
 
-def _split_by_paragraphs(text: str) -> list[tuple[int, int]]:
-    """Split text on blank-line boundaries. Returns non-empty (start, end)."""
-    segments: list[tuple[int, int]] = []
+def _split_by_paragraphs(text: str) -> list[tuple[int, int, str | None]]:
+    """Split text on blank-line boundaries. Returns (start, end, None) tuples."""
+    segments: list[tuple[int, int, str | None]] = []
     last_end = 0
     for match in PARAGRAPH_BOUNDARY.finditer(text):
         if match.start() > last_end:
-            segments.append((last_end, match.start()))
+            segments.append((last_end, match.start(), None))
         last_end = match.end()
     if last_end < len(text):
-        segments.append((last_end, len(text)))
-    return segments if segments else [(0, len(text))]
+        segments.append((last_end, len(text), None))
+    return segments if segments else [(0, len(text), None)]
 
 
 def _split_by_sentences(
@@ -137,7 +166,10 @@ def _split_by_sentences(
     seg_end: int,
     target_size: int,
 ) -> list[tuple[int, int]]:
-    """Split a long segment on sentence boundaries to ~target_size chunks."""
+    """Split a long segment on sentence boundaries to ~target_size chunks.
+
+    Returns plain (start, end) tuples — caller attaches the title.
+    """
     sub = text[seg_start:seg_end]
     boundaries = [0]
     for m in SENTENCE_BOUNDARY.finditer(sub):
@@ -162,11 +194,16 @@ def _split_oversized(
     target_size: int,
     max_size: int,
 ) -> list[tuple[int, int]]:
-    """A segment exceeds max_size: re-split it on paragraphs then sentences."""
+    """A segment exceeds max_size: re-split it on paragraphs then sentences.
+
+    Returns plain (start, end) tuples — caller attaches the title.
+    """
     sub = text[seg_start:seg_end]
-    paragraphs = _split_by_paragraphs(sub)
+    paragraph_tuples = _split_by_paragraphs(sub)
     # Translate paragraph offsets to global offsets.
-    paragraphs = [(seg_start + s, seg_start + e) for s, e in paragraphs]
+    paragraphs: list[tuple[int, int]] = [
+        (seg_start + s, seg_start + e) for s, e, _ in paragraph_tuples
+    ]
 
     out: list[tuple[int, int]] = []
     for p_start, p_end in paragraphs:
@@ -179,22 +216,21 @@ def _split_oversized(
 
 
 def _merge_small_paragraphs(
-    segments: list[tuple[int, int]],
+    segments: list[tuple[int, int, str | None]],
     target_size: int,
     max_size: int,
-) -> list[tuple[int, int]]:
+) -> list[tuple[int, int, str | None]]:
     """Merge consecutive paragraph segments until reaching target_size.
 
-    Used only in paragraph mode (no section headers): grouping small
-    paragraphs avoids producing many tiny chunks. Never produces a chunk
-    larger than max_size.
+    Used only in paragraph mode: grouping small paragraphs avoids producing
+    many tiny chunks. Never produces a chunk larger than max_size.
     """
     if not segments:
         return []
 
-    merged: list[tuple[int, int]] = []
-    cur_start, cur_end = segments[0]
-    for next_start, next_end in segments[1:]:
+    merged: list[tuple[int, int, str | None]] = []
+    cur_start, cur_end, cur_title = segments[0]
+    for next_start, next_end, next_title in segments[1:]:
         cur_size = cur_end - cur_start
         next_size = next_end - next_start
         # Only extend if the result stays within max_size and current is
@@ -202,9 +238,9 @@ def _merge_small_paragraphs(
         if cur_size < target_size and cur_size + next_size <= max_size:
             cur_end = next_end
         else:
-            merged.append((cur_start, cur_end))
-            cur_start, cur_end = next_start, next_end
-    merged.append((cur_start, cur_end))
+            merged.append((cur_start, cur_end, cur_title))
+            cur_start, cur_end, cur_title = next_start, next_end, next_title
+    merged.append((cur_start, cur_end, cur_title))
     return merged
 
 
@@ -246,19 +282,23 @@ def _chunk_one(
     headers = _parse_section_headers(text)
     total_length = len(text)
 
-    # 1. Initial segmentation.
+    # 1. Initial segmentation. Both helpers return (start, end, title) tuples
+    #    so we keep the section title attached to the segment through the
+    #    refinement steps (no need to re-lookup at chunk-build time).
     if headers:
         segments = _split_by_sections(text, headers, min_size)
     else:
         segments = _split_by_paragraphs(text)
 
-    # 2. Re-split oversized segments.
-    refined: list[tuple[int, int]] = []
-    for s, e in segments:
+    # 2. Re-split oversized segments. The new sub-segments inherit the
+    #    parent's title so they all map back to the same section.
+    refined: list[tuple[int, int, str | None]] = []
+    for s, e, title in segments:
         if e - s > max_size:
-            refined.extend(_split_oversized(text, s, e, target_size, max_size))
+            for ss, se in _split_oversized(text, s, e, target_size, max_size):
+                refined.append((ss, se, title))
         else:
-            refined.append((s, e))
+            refined.append((s, e, title))
 
     # 3. In paragraph mode, merge consecutive small segments.
     if not headers:
@@ -267,7 +307,7 @@ def _chunk_one(
     # 4. Build chunk dicts.
     out: list[dict] = []
     chunk_idx = 0
-    for s, e in refined:
+    for s, e, title in refined:
         piece = text[s:e].strip()
         if not piece:
             continue
@@ -276,7 +316,7 @@ def _chunk_one(
             "source": doc["source"],
             "page": doc["page"],
             "position": _position_at_offset(s, total_length),
-            "section_title": _section_title_at_offset(headers, s),
+            "section_title": title,
             "text": piece,
             "hash": _hash_text(piece),
         })

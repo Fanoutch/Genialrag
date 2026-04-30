@@ -121,9 +121,13 @@ def format_sources(chunks: list[dict]) -> str:
 def answer_question(
     question: str,
     vectorstore: VectorStore,
-    top_k: int = 4,
+    top_k: int = 6,
 ) -> dict:
     """Run the full RAG pipeline for a single question.
+
+    Default top_k=6 is calibrated for the semantic chunker (sections
+    average ~400-500 chars, so 6 chunks ≈ 3000 chars of context — similar
+    to what 4 fixed-size 800-char chunks gave previously).
 
     Returns: {"answer": str, "sources": list[dict]}
     """

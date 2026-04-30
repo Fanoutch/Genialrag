@@ -110,6 +110,66 @@ def test_recette_title_detected():
     assert chunks[0]["section_title"] == "Tarte aux pommes"
 
 
+def test_numeric_header_top_level_detected():
+    """A header like '1. PRESENTATION' at line start is detected."""
+    text = (
+        "Préambule.\n"
+        + "1. PRESENTATION\n"
+        + ("Contenu de la présentation. " * 30)
+    )
+    docs = [{"source": "a.txt", "page": None, "text": text}]
+
+    chunks = chunk_documents(docs)
+    titles = [c["section_title"] for c in chunks if c["section_title"]]
+
+    # The label should include the numbering and the title
+    assert any("PRESENTATION" in t for t in titles)
+
+
+def test_numeric_header_nested_levels_detected():
+    """Nested numbering like '2.1.' is detected."""
+    text = (
+        "1. PREMIER NIVEAU\n"
+        + ("contenu " * 50)
+        + "\n2.1. Sous-section avec un titre\n"
+        + ("autre contenu " * 50)
+    )
+    docs = [{"source": "a.txt", "page": None, "text": text}]
+
+    chunks = chunk_documents(docs)
+    titles = [c["section_title"] for c in chunks if c["section_title"]]
+
+    assert any("PREMIER NIVEAU" in t for t in titles)
+    assert any("2.1" in t and "Sous-section" in t for t in titles)
+
+
+def test_numeric_header_ignores_inline_references():
+    """References in the middle of a sentence should NOT be detected."""
+    text = "La procédure suit cinq étapes pour valider 1.2 fois la procédure habituelle."
+    docs = [{"source": "a.txt", "page": None, "text": text}]
+
+    chunks = chunk_documents(docs)
+    # Only chunk should have no detected section_title
+    assert chunks[0]["section_title"] is None
+
+
+def test_numeric_and_keyword_headers_can_coexist():
+    """A doc mixing 'Section N - Title' and '1.' headers should detect both."""
+    text = (
+        "Section 1 - Style classique\n"
+        + ("a" * 300)
+        + "\n2. STYLE NUMERIQUE\n"
+        + ("b" * 300)
+    )
+    docs = [{"source": "a.txt", "page": None, "text": text}]
+
+    chunks = chunk_documents(docs)
+    titles = [c["section_title"] for c in chunks if c["section_title"]]
+
+    assert any("Style classique" in t for t in titles)
+    assert any("STYLE NUMERIQUE" in t for t in titles)
+
+
 # -----------------------------------------------------------------------------
 # Section-mode splitting (the main strategy)
 # -----------------------------------------------------------------------------

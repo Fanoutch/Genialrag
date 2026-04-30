@@ -53,7 +53,7 @@ def run():
 
         result = answer_question(question, store)
 
-        print("\n--- TOP 4 CHUNKS REMONTÉS ---")
+        print(f"\n--- TOP {len(result['sources'])} CHUNKS REMONTÉS ---")
         for i, c in enumerate(result["sources"], 1):
             name = c["source"].split("/")[-1]
             page = f" p.{c['page']}" if c["page"] is not None else ""
