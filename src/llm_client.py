@@ -70,7 +70,7 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
 
 
 def generate(prompt: str) -> str:
-    """Generate a text response from the LLM (DeepSeek V3 via Chutes).
+    """Generate a text response from the LLM (Mistral Nemo via Chutes).
 
     Returns the generated text as a single string.
     """

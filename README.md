@@ -2,13 +2,13 @@
 
 Pipeline RAG (Retrieval-Augmented Generation) expérimentale pour poser des
 questions à une base documentaire (PDF + TXT). Indexation locale via ChromaDB,
-embeddings `bge-m3` et génération `DeepSeek-V3-0324-TEE` via Chutes.
+embeddings `bge-m3` et génération `Mistral-Nemo-Instruct-2407` via Chutes.
 
 ## Prérequis
 
 - Python 3.10+
 - Un compte [Chutes](https://chutes.ai) avec une clé API
-- Les modèles `BAAI/bge-m3` et `deepseek-ai/DeepSeek-V3-0324-TEE` accessibles
+- Les modèles `BAAI/bge-m3` et `unsloth/Mistral-Nemo-Instruct-2407` accessibles
   sur ton compte Chutes
 
 ## Installation

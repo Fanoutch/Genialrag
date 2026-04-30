@@ -33,7 +33,7 @@ CHUTES_API_KEY=ton_token_ici
 ```python
 EMBED_URL = "https://chutes-baai-bge-m3.chutes.ai/v1/embeddings"
 GEN_URL   = "https://llm.chutes.ai/v1/chat/completions"
-GEN_MODEL = "deepseek-ai/DeepSeek-V3-0324-TEE"
+GEN_MODEL = "unsloth/Mistral-Nemo-Instruct-2407"
 
 EMBED_DIM = 1024  # dimension des vecteurs bge-m3
 ```
@@ -55,7 +55,7 @@ Modifie ces deux constantes :
 
 ```python
 GEN_URL   = "https://llm.chutes.ai/v1/chat/completions"   # ← endpoint
-GEN_MODEL = "deepseek-ai/DeepSeek-V3-0324-TEE"            # ← nom du modèle
+GEN_MODEL = "unsloth/Mistral-Nemo-Instruct-2407"            # ← nom du modèle
 ```
 
 Et éventuellement le payload dans `generate()` si le format diffère :
