@@ -1,0 +1,3 @@
+Le manuel utilisateur de Genialrag décrit comment indexer des documents.
+La pipeline supporte les formats PDF et TXT.
+Les chunks sont stockés dans une base vectorielle ChromaDB.

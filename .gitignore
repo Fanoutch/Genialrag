@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.venv/
+venv/
+
+# Project
+.env
+chroma_db/
+data/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+.DS_Store
